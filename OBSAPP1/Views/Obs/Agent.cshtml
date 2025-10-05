@@ -4,21 +4,100 @@
 
 <div class="container mt-5 text-center">
     <h2>🧩 Instalacja pomocnika OBS</h2>
-    <p>Ten pomocnik pozwala przeglądarce uruchomić OBS z poziomu strony.</p>
+    <p class="text-muted">
+        Ten pomocnik pozwala odpalać OBS z poziomu strony (link <code>obscontroller://</code>).
+        Wybierz swój system, pobierz paczkę i uruchom instalator.
+    </p>
 
-    <div class="mt-4">
-        <a href="/downloads/ObsController.zip" download class="btn btn-primary btn-lg">
-            ⬇️ Pobierz ObsController.zip
-        </a>
+    <div class="row mt-4 justify-content-center g-4">
+
+        <!-- WINDOWS -->
+        <div class="col-12 col-md-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h4 class="card-title">💻 Windows</h4>
+                    <a href="/downloads/ObsController.zip" download class="btn btn-primary btn-lg w-100 my-2">
+                        ⬇️ Pobierz dla Windows
+                    </a>
+                    <ol class="text-start small mt-3 mb-0">
+                        <li>Rozpakuj do <code>C:\Program Files\ObsController\</code>.</li>
+                        <li>Uruchom <code>register-protocol.reg</code> (Administrator).</li>
+                        <li>Wróć tutaj i użyj przycisku „🎬 Rozpocznij transmisję”.</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- macOS -->
+        <div class="col-12 col-md-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h4 class="card-title">🍎 macOS</h4>
+                    <div class="d-grid gap-2">
+                        <a href="/downloads/ObsController-Mac-Intel.zip" download class="btn btn-success">
+                            ⬇️ macOS (Intel)
+                        </a>
+                        <a href="/downloads/ObsController-Mac-AppleSilicon.zip" download class="btn btn-success">
+                            ⬇️ macOS (Apple&nbsp;Silicon)
+                        </a>
+                    </div>
+                    <ol class="text-start small mt-3 mb-0">
+                        <li>Rozpakuj ZIP.</li>
+                        <li>Dwukliknij <code>Install ObsController.command</code>.</li>
+                        <li>Jeśli pojawi się blokada (Gatekeeper): <em>System Settings → Privacy &amp; Security → Allow Anyway</em>, potem „Open”.</li>
+                        <li>Wróć tutaj i kliknij „🎬 Rozpocznij transmisję”.</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- LINUX -->
+        <div class="col-12 col-md-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h4 class="card-title">🐧 Linux</h4>
+                    <a href="/downloads/ObsController-Linux.zip" download class="btn btn-warning btn-lg w-100 my-2">
+                        ⬇️ Pobierz dla Linux (x64)
+                    </a>
+                    <ol class="text-start small mt-3 mb-0">
+                        <li>Rozpakuj ZIP.</li>
+                        <li>Dwukliknij plik <code>install-linux</code> (może wymagać nadania uprawnień „Wykonywalny”).</li>
+                        <li>Wróć tutaj i kliknij „🎬 Rozpocznij transmisję”.</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <ol class="text-start mt-4">
-        <li>Rozpakuj pobrany plik do <code>C:\Program Files\ObsController\</code>.</li>
-        <li>Uruchom <code>register-protocol.reg</code> (z uprawnieniami administratora).</li>
-        <li>Po instalacji wróć na stronę i kliknij <strong>🎬 Rozpocznij transmisję</strong>.</li>
-    </ol>
+    <div class="mt-4">
+        <a href="obscontroller://start?stream=1" class="btn btn-outline-primary">
+            🔗 Test protokołu: uruchom OBS
+        </a>
+        <div class="small text-muted mt-2">
+            Jeśli przeglądarka zapyta o otwieranie aplikacji „ObsControllerAgent/ObsController”, wybierz „Allow / Zawsze zezwalaj”.
+        </div>
+    </div>
 
-    <a asp-controller="Home" asp-action="Index" class="btn btn-outline-secondary mt-4">
+    <hr class="mt-4">
+    <a asp-controller="Home" asp-action="Index" class="btn btn-outline-secondary mt-2">
         ← Wróć do strony głównej
     </a>
 </div>
+
+@section Scripts {
+    <script>
+        // Delikatne podpowiedzi – wyróżnij sekcję systemu użytkownika
+        (function () {
+            const ua = navigator.userAgent.toLowerCase();
+            let idx = -1;
+            if (ua.includes('windows')) idx = 0;
+            else if (ua.includes('mac')) idx = 1;
+            else if (ua.includes('linux')) idx = 2;
+
+            if (idx >= 0) {
+                const cards = document.querySelectorAll('.card');
+                cards[idx]?.classList.add('border', 'border-2', 'border-primary');
+            }
+        })();
+    </script>
+}
