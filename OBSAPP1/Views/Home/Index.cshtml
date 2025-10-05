@@ -1,0 +1,46 @@
+﻿@{
+    ViewData["Title"] = "Transmisja OBS";
+}
+
+<div class="text-center mt-5">
+    <h1>Transmisja OBS</h1>
+    <p>Kliknij przycisk, aby uruchomić OBS i rozpocząć transmisję.</p>
+
+    <div class="d-flex justify-content-center gap-3 mt-4">
+        <form id="startForm" asp-controller="Obs" asp-action="Start" method="post">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-success btn-lg">
+                🎬 Rozpocznij transmisję
+            </button>
+        </form>
+
+        <a href="https://obsproject.com/download"
+           target="_blank" rel="noopener"
+           class="btn btn-outline-primary btn-lg">
+            ⬇️ Pobierz OBS
+        </a>
+    </div>
+
+    <div id="status" class="mt-4 text-info"></div>
+</div>
+
+@section Scripts {
+    <script>
+        document.getElementById("startForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const form = e.target;
+            const response = await fetch(form.action, {
+                method: "POST",
+                body: new FormData(form),
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest"
+                }
+            });
+
+            const result = await response.json();
+            document.getElementById("status").innerText =
+                result.ok ? "OBS został uruchomiony!" : "Nie udało się uruchomić OBS.";
+        });
+    </script>
+}
