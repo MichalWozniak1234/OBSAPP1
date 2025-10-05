@@ -1,0 +1,24 @@
+﻿@{
+    ViewData["Title"] = "Instalacja pomocnika OBS";
+}
+
+<div class="container mt-5 text-center">
+    <h2>🧩 Instalacja pomocnika OBS</h2>
+    <p>Ten pomocnik pozwala przeglądarce uruchomić OBS z poziomu strony.</p>
+
+    <div class="mt-4">
+        <a href="/downloads/ObsController.zip" download class="btn btn-primary btn-lg">
+            ⬇️ Pobierz ObsController.zip
+        </a>
+    </div>
+
+    <ol class="text-start mt-4">
+        <li>Rozpakuj pobrany plik do <code>C:\Program Files\ObsController\</code>.</li>
+        <li>Uruchom <code>register-protocol.reg</code> (z uprawnieniami administratora).</li>
+        <li>Po instalacji wróć na stronę i kliknij <strong>🎬 Rozpocznij transmisję</strong>.</li>
+    </ol>
+
+    <a asp-controller="Home" asp-action="Index" class="btn btn-outline-secondary mt-4">
+        ← Wróć do strony głównej
+    </a>
+</div>
