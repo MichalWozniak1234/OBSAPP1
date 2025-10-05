@@ -8,6 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Update="wwwroot\downloads\ObsController-Linux.zip">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Update="wwwroot\downloads\ObsController-Mac-AppleSilicon.zip">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Update="wwwroot\downloads\ObsController-Mac-Intel.zip">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Update="wwwroot\downloads\ObsController.zip">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
