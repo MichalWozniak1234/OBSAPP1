@@ -8,7 +8,7 @@ using System.Text;
 
 static class Program
 {
-    // ===== Windows bring-to-front =====
+    // ----- Windows bring-to-front -----
     const int SW_RESTORE = 9;
     const int SW_SHOW = 5;
 
@@ -19,106 +19,123 @@ static class Program
     {
         try
         {
-            Log("=== ObsControllerAgent start ===");
-            // Obsługa zarówno bezpośredniego wywołania jak i protokołu:
-            // obscontroller://start?stream=1&profile=...&collection=...&scene=...
-            var uriArg = args.FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(uriArg))
+            Log("=== ObsControllerAgent START ===");
+            Log("Args: " + string.Join(" | ", args.Select(a => $"[{a}]")));
+
+            // 1) Parsowanie komendy
+            var cmd = ParseCommand(args);
+            Log($"Parsed -> stream:{cmd.StartStream} profile:{cmd.Profile} collection:{cmd.Collection} scene:{cmd.Scene}");
+
+            // 2) Znajdź OBS
+            var resolved = ResolveObsPath(out var obsExe, out var workDir, out var why);
+            Log($"ResolveObsPath -> {resolved}, exe:'{obsExe}', wd:'{workDir}', note:'{why}'");
+
+            if (!resolved || string.IsNullOrWhiteSpace(obsExe) || !File.Exists(obsExe))
             {
-                // fallback – uruchom samo OBS
-                return StartObs(new ObsCommand { Action = "start" }) ? 0 : 2;
+                Log("OBS not found. Hints: " + why);
+                Message("Nie znaleziono OBS. Sprawdź agent.log i ustaw 'obs-path.txt' lub zmienną środowiskową OBS_PATH.");
+                return 2;
             }
 
-            if (!TryParseCommand(uriArg, out var cmd))
+            // 3) Jeśli OBS już działa – pokaż okno i wyjdź
+            if (IsObsRunning(out var existing))
             {
-                Log($"Niepoprawny argument: {uriArg}");
-                return 1;
+                Log("OBS already running -> bring to front only.");
+                BringToFront(existing!);
+                return 0;
             }
 
-            return StartObs(cmd) ? 0 : 2;
+            // 4) Zbuduj argumenty uruchomienia
+            var argsText = BuildObsArgs(cmd);
+            Log($"Starting: \"{obsExe}\" {argsText}");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = obsExe,
+                Arguments = argsText,
+                UseShellExecute = true, // ważne na Windows
+                WorkingDirectory = workDir ?? Path.GetDirectoryName(obsExe)!,
+                WindowStyle = ProcessWindowStyle.Normal,
+            };
+
+            var p = Process.Start(psi);
+            if (p == null)
+            {
+                Log("Process.Start returned null");
+                return 3;
+            }
+
+            // Poczekaj aż okno będzie dostępne i wynieś na wierzch
+            try
+            {
+                p.WaitForInputIdle(5000);
+                BringToFront(p);
+            }
+            catch { /* best-effort */ }
+
+            Log("OBS started OK.");
+            return 0;
         }
         catch (Exception ex)
         {
-            Log("Błąd krytyczny: " + ex);
+            Log("FATAL: " + ex);
+            Message("Wystąpił błąd. Zobacz agent.log w %APPDATA%\\ObsControllerAgent\\");
             return 1;
         }
         finally
         {
-            Log("=== ObsControllerAgent exit ===");
+            Log("=== ObsControllerAgent EXIT ===");
         }
     }
 
-    // ===== Model komendy =====
+    // ---------- Model ----------
     sealed class ObsCommand
     {
-        public string Action { get; set; } = "start";  // "start"
         public bool StartStream { get; set; }
         public string? Profile { get; set; }
         public string? Collection { get; set; }
         public string? Scene { get; set; }
     }
 
-    // ===== Parser URI =====
-    static bool TryParseCommand(string arg, out ObsCommand cmd)
+    // ---------- Parser ----------
+    static ObsCommand ParseCommand(string[] args)
     {
-        cmd = new ObsCommand();
+        var cmd = new ObsCommand();
+        var raw = args.FirstOrDefault() ?? "obscontroller://start";
 
         try
         {
-            // Chrome/Edge mogą przekazać cały URL, ale też bywa cytowany
-            arg = arg.Trim().Trim('"');
-            if (arg.StartsWith("obscontroller:", StringComparison.OrdinalIgnoreCase))
+            raw = raw.Trim().Trim('"');
+
+            if (!raw.StartsWith("obscontroller:", StringComparison.OrdinalIgnoreCase))
             {
-                var uri = new Uri(arg);
-                var path = uri.AbsolutePath.Trim('/').ToLowerInvariant();
-                var q = ParseQuery(uri.Query);
-
-                cmd.Action = string.IsNullOrEmpty(path) ? "start" : path;
-                cmd.StartStream = q.TryGetValue("stream", out var v) && v == "1";
-                if (q.TryGetValue("profile", out var prof)) cmd.Profile = prof;
-                if (q.TryGetValue("collection", out var coll)) cmd.Collection = coll;
-                if (q.TryGetValue("scene", out var scene)) cmd.Scene = scene;
-
-                return true;
+                // pozwól też na "start?stream=1"
+                if (!raw.StartsWith("start", StringComparison.OrdinalIgnoreCase))
+                    raw = "obscontroller://start" + (raw.StartsWith("?") ? raw : "");
+                else
+                    raw = "obscontroller://" + raw;
             }
 
-            // Gdyby ktoś podał po prostu "start" albo inne prostsze formy
-            if (string.Equals(arg, "start", StringComparison.OrdinalIgnoreCase))
-            {
-                cmd.Action = "start";
-                return true;
-            }
+            var uri = new Uri(raw);
+            var q = ParseQuery(uri.Query);
 
-            // Obsługa zwykłego query stringa (np. uruchomienie bez custom protocol)
-            if (arg.StartsWith("start", StringComparison.OrdinalIgnoreCase))
-            {
-                cmd.Action = "start";
-                var idx = arg.IndexOf('?');
-                if (idx >= 0)
-                {
-                    var q = ParseQuery(arg.Substring(idx));
-                    cmd.StartStream = q.TryGetValue("stream", out var v) && v == "1";
-                    if (q.TryGetValue("profile", out var prof)) cmd.Profile = prof;
-                    if (q.TryGetValue("collection", out var coll)) cmd.Collection = coll;
-                    if (q.TryGetValue("scene", out var scene)) cmd.Scene = scene;
-                }
-                return true;
-            }
-
-            return false;
+            cmd.StartStream = q.TryGetValue("stream", out var v) && v == "1";
+            if (q.TryGetValue("profile", out var prof)) cmd.Profile = prof;
+            if (q.TryGetValue("collection", out var coll)) cmd.Collection = coll;
+            if (q.TryGetValue("scene", out var sc)) cmd.Scene = sc;
         }
         catch (Exception ex)
         {
-            Log("TryParseCommand error: " + ex);
-            return false;
+            Log("ParseCommand error: " + ex);
         }
+        return cmd;
     }
 
     static Dictionary<string, string> ParseQuery(string query)
     {
         var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrEmpty(query)) return d;
-        var q = query[0] == '?' ? query.Substring(1) : query;
+        var q = query[0] == '?' ? query[1..] : query;
         foreach (var part in q.Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
             var kv = part.Split('=', 2);
@@ -129,101 +146,102 @@ static class Program
         return d;
     }
 
-    // ===== Uruchamianie OBS =====
-    static bool StartObs(ObsCommand cmd)
-    {
-        try
-        {
-            var (fileName, workingDir, isShellExec) = ResolveObsPath();
-            if (fileName == null)
-            {
-                Log("Nie znaleziono OBS dla tej platformy.");
-                return false;
-            }
-
-            var args = BuildObsArgs(cmd);
-            Log($"Start OBS: {fileName} {args}");
-
-            // Jeśli już działa – Windows: wynieś na wierzch; mac/Linux: tylko startstream via args (WebSocket byłby lepszy)
-            if (IsObsRunning(out var existing))
-            {
-                Log("OBS już działa.");
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                {
-                    BringToFront(existing!);
-                }
-                // Opcjonalnie można mimo to uruchomić drugi proces z --startstreaming -> OBS zignoruje
-                // lub dodać WebSocket do sterowania instancją. Zostawiamy najprostszy wariant.
-                return true;
-            }
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = fileName,
-                Arguments = args,
-                UseShellExecute = isShellExec,
-                WorkingDirectory = workingDir ?? Environment.CurrentDirectory,
-                WindowStyle = ProcessWindowStyle.Normal
-            };
-
-            var p = Process.Start(psi);
-            if (p == null) return false;
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                p.WaitForInputIdle(5000);
-                BringToFront(p);
-            }
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Log("StartObs error: " + ex);
-            return false;
-        }
-    }
-
     static string BuildObsArgs(ObsCommand cmd)
     {
         var list = new List<string>();
-
-        // Ustal profil / kolekcję / scenę (jeśli podano)
         if (!string.IsNullOrWhiteSpace(cmd.Profile)) list.Add($"--profile \"{cmd.Profile}\"");
         if (!string.IsNullOrWhiteSpace(cmd.Collection)) list.Add($"--collection \"{cmd.Collection}\"");
         if (!string.IsNullOrWhiteSpace(cmd.Scene)) list.Add($"--scene \"{cmd.Scene}\"");
-
-        if (cmd.Action == "start" && cmd.StartStream)
-            list.Add("--startstreaming");
-
+        if (cmd.StartStream) list.Add("--startstreaming");
         return string.Join(' ', list);
     }
 
-    static bool IsObsRunning(out Process? proc)
+    // ---------- Wykrywanie OBS ----------
+    static bool ResolveObsPath(out string? exe, out string? wd, out string note)
     {
-        proc = null;
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        exe = null; wd = null; note = "";
+
+        // 1) ENV nadpisuje wszystko
+        var env = Environment.GetEnvironmentVariable("OBS_PATH");
+        if (!string.IsNullOrWhiteSpace(env) && File.Exists(env))
         {
-            proc = Process.GetProcessesByName("obs64").FirstOrDefault();
-            return proc != null;
+            exe = env; wd = Path.GetDirectoryName(env);
+            note = "from ENV OBS_PATH";
+            return true;
         }
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+
+        // 2) plik obs-path.txt obok agenta (można w nim wpisać pełną ścieżkę do obs64.exe)
+        try
         {
-            // na macOS proces to zwykle "obs"
-            proc = Process.GetProcessesByName("obs").FirstOrDefault()
-                ?? Process.GetProcesses().FirstOrDefault(p => p.ProcessName.Contains("obs", StringComparison.OrdinalIgnoreCase));
-            return proc != null;
+            var here = AppContext.BaseDirectory;
+            var hint = Path.Combine(here, "obs-path.txt");
+            if (File.Exists(hint))
+            {
+                var p = File.ReadAllText(hint).Trim().Trim('"');
+                if (File.Exists(p))
+                {
+                    exe = p; wd = Path.GetDirectoryName(p);
+                    note = "from obs-path.txt";
+                    return true;
+                }
+                note += $"obs-path.txt wskazuje nieistniejącą ścieżkę: {p}. ";
+            }
+
+            // 3) portable obok agenta
+            var portable = Path.Combine(here, "obs-studio", "bin", "64bit", "obs64.exe");
+            if (File.Exists(portable))
+            {
+                exe = portable; wd = Path.GetDirectoryName(portable);
+                note = "portable next to agent";
+                return true;
+            }
         }
-        // Linux
-        proc = Process.GetProcessesByName("obs").FirstOrDefault();
-        return proc != null;
+        catch (Exception ex) { note += "hint/portable ex: " + ex.Message + ". "; }
+
+        // 4) standardowe lokalizacje
+        string Combine(params string[] parts) => Path.Combine(parts);
+
+        var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+
+        var candidates = new[]
+        {
+            Combine(pf,  "obs-studio","bin","64bit","obs64.exe"),
+            Combine(pf86,"obs-studio","bin","64bit","obs64.exe"),
+            // czasem ktoś instaluje w niestandardowym folderze pod Program Files
+            Combine(pf,  "OBS Studio","bin","64bit","obs64.exe"),
+            Combine(pf86,"OBS Studio","bin","64bit","obs64.exe"),
+        };
+
+        foreach (var c in candidates)
+        {
+            try
+            {
+                if (File.Exists(c))
+                {
+                    exe = c; wd = Path.GetDirectoryName(c);
+                    note += $"found at {c}";
+                    return true;
+                }
+            }
+            catch (Exception ex) { note += $"check {c} ex:{ex.Message}; "; }
+        }
+
+        return false;
+    }
+
+    // ---------- Running/Front ----------
+    static bool IsObsRunning(out Process? p)
+    {
+        p = Process.GetProcessesByName("obs64").FirstOrDefault();
+        return p != null;
     }
 
     static void BringToFront(Process p)
     {
         try
         {
-            for (int i = 0; i < 20; i++)
+            for (int i = 0; i < 25; i++)
             {
                 p.Refresh();
                 if (p.MainWindowHandle != IntPtr.Zero) break;
@@ -240,36 +258,7 @@ static class Program
         catch { /* best-effort */ }
     }
 
-    // ===== Lokalizacja OBS per OS =====
-    static (string? fileName, string? workingDir, bool useShellExecute) ResolveObsPath()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            var candidates = new[]
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),     "obs-studio", "bin", "64bit", "obs64.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "obs-studio", "bin", "64bit", "obs64.exe")
-            };
-            var found = candidates.FirstOrDefault(File.Exists);
-            if (found != null)
-                return (found, Path.GetDirectoryName(found), true);
-            return (null, null, true);
-        }
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            // Typowa lokalizacja z pakietu .app
-            var path = "/Applications/OBS.app/Contents/MacOS/OBS";
-            if (File.Exists(path))
-                return (path, Path.GetDirectoryName(path), false);
-
-            // Fallback – może jest w PATH
-            return ("obs", null, false);
-        }
-        // Linux
-        return ("obs", null, false); // zwykle dostępny w PATH
-    }
-
-    // ===== Log do pliku w katalogu użytkownika =====
+    // ---------- Log & UI ----------
     static void Log(string line)
     {
         try
@@ -281,6 +270,18 @@ static class Program
             var file = Path.Combine(dir, "agent.log");
             File.AppendAllText(file, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {line}{Environment.NewLine}", Encoding.UTF8);
         }
-        catch { /* ignore */ }
+        catch { }
+    }
+
+    static void Message(string text)
+    {
+        try
+        {
+            // proste info bez zależności – Notepad
+            var tmp = Path.Combine(Path.GetTempPath(), "ObsControllerAgent.msg.txt");
+            File.WriteAllText(tmp, text + Environment.NewLine + "Szczegóły: %APPDATA%\\ObsControllerAgent\\agent.log");
+            Process.Start(new ProcessStartInfo("notepad.exe", $"\"{tmp}\"") { UseShellExecute = true });
+        }
+        catch { /* nie blokuj */ }
     }
 }
